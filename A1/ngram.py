@@ -1,84 +1,89 @@
-import numpy as np
 import random
-
+from collections import defaultdict
 
 class CharNGramLanguageModel:
     
-    def __init__(self, n, data, prompt):
-        self.n = n + 1
+    def __init__(self, n, data):
+        self.n = n
         self.data = data
-        self.prompt = prompt
         self.sequence_occurences = self.count_occurences()
 
     def count_occurences(self):
         
-        sequences = {}
-        total = len(self.data) / self.n
 
-        for i in range(len(self.data)-self.n):
+        sequences = defaultdict(int)
+        total = len(self.data) - self.n
+
+        for i in range(total):
             
             prev_word  = ''.join(self.data[i:i+self.n-1])
-            
-            if (prev_word, self.data[i+self.n]) in sequences.keys():
-                sequences[(prev_word, self.data[i+self.n])] += 1
-            else:
-                sequences[(prev_word, self.data[i+self.n])] = 1
+            next_char = self.data[i+self.n-1] if (i+self.n-1) < len(self.data) else "<eos>"
+            sequences[(prev_word, next_char)] += 1
 
-            i += self.n + 1
-        i -= self.n 
-        prev_word = "".join(self.data[i:i+self.n])
-        sequences[(prev_word, "<eos>")] = 1 
-
+        total_sequences = sum(sequences.values())
         for keys in sequences:
-            sequences[keys] = ( sequences[keys] / total  ) * 100
+            sequences[keys] = sequences[keys] / total_sequences  
        
         
         #print(sequences)
 
         return sequences
 
-    def generate_character(self):
+    def generate_character(self, prompt):
 
-        last_n = self.prompt[len(self.prompt)-self.n+1:len(self.prompt)]
+        last_n = prompt[-(self.n-1):]
 #        print(last_n)
         
-        next_n_probs = []
-        for keys in self.sequence_occurences:
-            if keys[0] == last_n:
-                next_n_probs.append([(keys), self.sequence_occurences[keys]])
-
+        next_n_probs = [(key, prob) for key, prob in self.sequence_occurences.items() if key[0] == last_n]
         
-       # print(next_n_probs)
+        if next_n_probs:
+            return random.choices(
+                [key for key, _ in next_n_probs],
+                [weight for _, weight in next_n_probs]
+            )[0]
+        
+       
+        # Fallback to unigram
+        unigram_counts = defaultdict(int)
+        for (prev_word, next_char), prob  in self.sequence_occurences.items():
+            unigram_counts[next_char] += prob
+
+        total = sum(unigram_counts.values())
+
+        for char in unigram_counts:
+            unigram_counts[char] /= total
+        
+        chars = list(unigram_counts.keys())
+        probs = list(unigram_counts.values())
+
+        return (prompt[-1], random.choice(chars, weights=probs)[0])
         
 
-        return (last_n, "<eos>") if len(next_n_probs) == 0 else random.choices(next_n_probs)[0]
+    def generate(self, prompt):
         
-
-    def generate(self):
-
-        total_new_char = ""
+        generated = prompt 
         
         while True: 
 
-            new_char = self.generate_character()
-            total_new_char += new_char[0][1]  
+            new_char = self.generate_character(generated)
             
-            if(new_char[0][1] == "<eos>" or len(total_new_char) == 100 ):
+            if(new_char[1] == "<eos>" or len(generated) >= 100 ):
                 break
 
-            self.prompt = self.prompt + new_char[0][1]
+            generated += new_char[1]
             
-            
+        return generated
 
-        return self.prompt
-
-if __name__ == '__main__':
-   
+def main():
     user_prompt = input("Enter prompt: ")
     num_gram =  int(input("Enter the number of previous characters to check:"))
 
-    file = open("datasets/input.txt", "r") 
-    data = list(file.read())
+    with open("datasets/input.txt", "r") as file:
+        data = file.read()
 
-    model = CharNGramLanguageModel(num_gram, data, user_prompt)
-    print(model.generate())
+    data = data.replace('\n',' ') + '<eos>'
+    model = CharNGramLanguageModel(num_gram, list(data) )
+    print(model.generate(user_prompt))
+
+if __name__ == '__main__':
+    main()
